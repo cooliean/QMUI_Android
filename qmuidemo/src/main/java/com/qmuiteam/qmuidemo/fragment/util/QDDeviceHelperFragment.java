@@ -8,27 +8,30 @@ import android.view.LayoutInflater;
 import android.view.View;
 
 import com.qmuiteam.qmui.util.QMUIDeviceHelper;
-import com.qmuiteam.qmui.widget.QMUITopBar;
+import com.qmuiteam.qmui.widget.QMUITopBarLayout;
 import com.qmuiteam.qmui.widget.grouplist.QMUIGroupListView;
-import com.qmuiteam.qmuidemo.QDDataManager;
-import com.qmuiteam.qmuidemo.base.BaseFragment;
-import com.qmuiteam.qmuidemo.model.QDItemDescription;
 import com.qmuiteam.qmuidemo.R;
+import com.qmuiteam.qmuidemo.base.BaseFragment;
 import com.qmuiteam.qmuidemo.lib.Group;
 import com.qmuiteam.qmuidemo.lib.annotation.Widget;
+import com.qmuiteam.qmuidemo.manager.QDDataManager;
+import com.qmuiteam.qmuidemo.model.QDItemDescription;
 
 import butterknife.BindView;
 import butterknife.ButterKnife;
 
 /**
+ * {@link QMUIDeviceHelper} 的使用示例。
  * Created by Kayo on 2016/12/2.
  */
 
 @Widget(group = Group.Helper, widgetClass = QMUIDeviceHelper.class, iconRes = R.mipmap.icon_grid_device_helper)
 public class QDDeviceHelperFragment extends BaseFragment {
 
-    @BindView(R.id.topbar) QMUITopBar mTopBar;
-    @BindView(R.id.groupListView) QMUIGroupListView mGroupListView;
+    @BindView(R.id.topbar)
+    QMUITopBarLayout mTopBar;
+    @BindView(R.id.groupListView)
+    QMUIGroupListView mGroupListView;
 
     private QDItemDescription mQDItemDescription;
 

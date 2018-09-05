@@ -13,14 +13,14 @@ import android.widget.TextView;
 import com.qmuiteam.qmui.util.QMUIDisplayHelper;
 import com.qmuiteam.qmui.util.QMUIResHelper;
 import com.qmuiteam.qmui.widget.QMUITabSegment;
-import com.qmuiteam.qmui.widget.QMUITopBar;
+import com.qmuiteam.qmui.widget.QMUITopBarLayout;
 import com.qmuiteam.qmui.widget.dialog.QMUIBottomSheet;
-import com.qmuiteam.qmuidemo.QDDataManager;
-import com.qmuiteam.qmuidemo.base.BaseFragment;
-import com.qmuiteam.qmuidemo.model.QDItemDescription;
 import com.qmuiteam.qmuidemo.R;
+import com.qmuiteam.qmuidemo.base.BaseFragment;
 import com.qmuiteam.qmuidemo.lib.Group;
 import com.qmuiteam.qmuidemo.lib.annotation.Widget;
+import com.qmuiteam.qmuidemo.manager.QDDataManager;
+import com.qmuiteam.qmuidemo.model.QDItemDescription;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -35,11 +35,13 @@ import butterknife.ButterKnife;
 
 @Widget(group = Group.Other, name = "固定宽度，内容均分")
 public class QDTabSegmentFixModeFragment extends BaseFragment {
-    @BindView(R.id.topbar) QMUITopBar mTopBar;
-    @BindView(R.id.tabSegment) QMUITabSegment mTabSegment;
-    @BindView(R.id.contentViewPager) ViewPager mContentViewPager;
+    @BindView(R.id.topbar)
+    QMUITopBarLayout mTopBar;
+    @BindView(R.id.tabSegment)
+    QMUITabSegment mTabSegment;
+    @BindView(R.id.contentViewPager)
+    ViewPager mContentViewPager;
 
-    private View mRootView;
     private Map<ContentPage, View> mPageMap = new HashMap<>();
     private ContentPage mDestPage = ContentPage.Item1;
     private QDItemDescription mQDItemDescription;
@@ -68,22 +70,18 @@ public class QDTabSegmentFixModeFragment extends BaseFragment {
             container.removeView((View) object);
         }
 
-        @Override
-        public CharSequence getPageTitle(int position) {
-            return super.getPageTitle(position);
-        }
     };
 
     @Override
     protected View onCreateView() {
-        mRootView = LayoutInflater.from(getActivity()).inflate(R.layout.fragment_tab_viewpager_layout, null);
-        ButterKnife.bind(this, mRootView);
+        View rootView = LayoutInflater.from(getActivity()).inflate(R.layout.fragment_tab_viewpager_layout, null);
+        ButterKnife.bind(this, rootView);
 
         mQDItemDescription = QDDataManager.getInstance().getDescription(this.getClass());
         initTopBar();
         initTabAndPager();
 
-        return mRootView;
+        return rootView;
     }
 
     private void initTopBar() {

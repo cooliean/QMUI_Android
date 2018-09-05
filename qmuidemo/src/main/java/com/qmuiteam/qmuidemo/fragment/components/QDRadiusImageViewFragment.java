@@ -7,24 +7,27 @@ import android.view.View;
 
 import com.qmuiteam.qmui.util.QMUIDisplayHelper;
 import com.qmuiteam.qmui.widget.QMUIRadiusImageView;
-import com.qmuiteam.qmui.widget.QMUITopBar;
+import com.qmuiteam.qmui.widget.QMUITopBarLayout;
 import com.qmuiteam.qmui.widget.dialog.QMUIBottomSheet;
-import com.qmuiteam.qmuidemo.QDDataManager;
 import com.qmuiteam.qmuidemo.R;
-import com.qmuiteam.qmuidemo.lib.annotation.Widget;
 import com.qmuiteam.qmuidemo.base.BaseFragment;
+import com.qmuiteam.qmuidemo.lib.annotation.Widget;
+import com.qmuiteam.qmuidemo.manager.QDDataManager;
 
 import butterknife.BindView;
 import butterknife.ButterKnife;
 
 /**
+ * {@link QMUIRadiusImageView} 的使用示例。
  * Created by cgspine on 15/9/15.
  */
 @Widget(widgetClass = QMUIRadiusImageView.class, iconRes = R.mipmap.icon_grid_radius_image_view)
 public class QDRadiusImageViewFragment extends BaseFragment {
 
-    @BindView(R.id.topbar) QMUITopBar mTopBar;
-    @BindView(R.id.radiusImageView) QMUIRadiusImageView mRadiusImageView;
+    @BindView(R.id.topbar)
+    QMUITopBarLayout mTopBar;
+    @BindView(R.id.radiusImageView)
+    QMUIRadiusImageView mRadiusImageView;
 
     @Override
     protected View onCreateView() {

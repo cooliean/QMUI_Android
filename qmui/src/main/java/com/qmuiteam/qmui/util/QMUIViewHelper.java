@@ -7,18 +7,24 @@ import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
 import android.app.Activity;
+import android.content.Context;
+import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
 import android.graphics.LightingColorFilter;
+import android.graphics.Matrix;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.support.annotation.ColorInt;
 import android.support.annotation.Nullable;
+import android.support.v4.content.ContextCompat;
 import android.view.TouchDelegate;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.ViewStub;
 import android.view.Window;
 import android.view.animation.AlphaAnimation;
@@ -41,11 +47,23 @@ public class QMUIViewHelper {
     // copy from View.generateViewId for API <= 16
     private static final AtomicInteger sNextGeneratedId = new AtomicInteger(1);
 
+
+    private static final int[] APPCOMPAT_CHECK_ATTRS = {
+            android.support.v7.appcompat.R.attr.colorPrimary
+    };
+
+    public static void checkAppCompatTheme(Context context) {
+        TypedArray a = context.obtainStyledAttributes(APPCOMPAT_CHECK_ATTRS);
+        final boolean failed = !a.hasValue(0);
+        a.recycle();
+        if (failed) {
+            throw new IllegalArgumentException("You need to use a Theme.AppCompat theme "
+                    + "(or descendant) with the design library.");
+        }
+    }
+
     /**
      * 获取activity的根view
-     *
-     * @param activity
-     * @return
      */
     public static View getActivityRoot(Activity activity) {
         return ((ViewGroup) activity.findViewById(Window.ID_ANDROID_CONTENT)).getChildAt(0);
@@ -53,8 +71,6 @@ public class QMUIViewHelper {
 
     /**
      * 触发window的insets的广播，使得view的fitSystemWindows得以生效
-     *
-     * @param window
      */
     @SuppressWarnings("deprecation")
     public static void requestApplyInsets(Window window) {
@@ -92,19 +108,23 @@ public class QMUIViewHelper {
 
     @SuppressWarnings("deprecation")
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
-    public static void setBackgroundKeepingPadding(View view, Drawable drawable) {
-        int[] padding = new int[]{view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), view.getPaddingBottom()};
+    public static void setBackground(View view, Drawable drawable){
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
             view.setBackground(drawable);
         } else {
             view.setBackgroundDrawable(drawable);
         }
+    }
+
+    public static void setBackgroundKeepingPadding(View view, Drawable drawable) {
+        int[] padding = new int[]{view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), view.getPaddingBottom()};
+        setBackground(view, drawable);
         view.setPadding(padding[0], padding[1], padding[2], padding[3]);
     }
 
     @SuppressWarnings("deprecation")
     public static void setBackgroundKeepingPadding(View view, int backgroundResId) {
-        setBackgroundKeepingPadding(view, view.getResources().getDrawable(backgroundResId));
+        setBackgroundKeepingPadding(view, ContextCompat.getDrawable(view.getContext(), backgroundResId));
     }
 
     public static void setBackgroundColorKeepPadding(View view, @ColorInt int color) {
@@ -133,14 +153,14 @@ public class QMUIViewHelper {
      * @param stepDuration 每一步变化的时长
      * @param endAction    动画结束后的回调
      */
-    public static void playViewBackgroundAnimation(final View v, @ColorInt int bgColor, int[] alphaArray, int stepDuration, final Runnable endAction) {
+    public static Animator playViewBackgroundAnimation(final View v, @ColorInt int bgColor, int[] alphaArray, int stepDuration, final Runnable endAction) {
         int animationCount = alphaArray.length - 1;
 
         Drawable bgDrawable = new ColorDrawable(bgColor);
         final Drawable oldBgDrawable = v.getBackground();
         setBackgroundKeepingPadding(v, bgDrawable);
 
-        List<Animator> animatorList = new ArrayList<Animator>();
+        List<Animator> animatorList = new ArrayList<>();
         for (int i = 0; i < animationCount; i++) {
             ObjectAnimator animator = ObjectAnimator.ofInt(v.getBackground(), "alpha", alphaArray[i], alphaArray[i + 1]);
             animatorList.add(animator);
@@ -171,6 +191,7 @@ public class QMUIViewHelper {
         });
         animatorSet.playSequentially(animatorList);
         animatorSet.start();
+        return animatorSet;
     }
 
     public static void playViewBackgroundAnimation(final View v, @ColorInt int bgColor, int[] alphaArray, int stepDuration) {
@@ -332,10 +353,13 @@ public class QMUIViewHelper {
         }
     }
 
-    public static void clearValueAnimator(ValueAnimator animator) {
+    public static void clearValueAnimator(Animator animator) {
         if (animator != null) {
             animator.removeAllListeners();
-            animator.removeAllUpdateListeners();
+            if(animator instanceof ValueAnimator){
+                ((ValueAnimator)animator).removeAllUpdateListeners();
+            }
+
             if (Build.VERSION.SDK_INT >= 19) {
                 animator.pause();
             }
@@ -399,7 +423,7 @@ public class QMUIViewHelper {
             translate.setInterpolator(new DecelerateInterpolator());
             translate.setDuration(duration);
             translate.setFillAfter(true);
-            if(listener != null){
+            if (listener != null) {
                 translate.setAnimationListener(listener);
             }
             view.setVisibility(View.VISIBLE);
@@ -500,7 +524,9 @@ public class QMUIViewHelper {
      * @param value 设置的值
      */
     public static void setPaddingLeft(View view, int value) {
-        view.setPadding(value, view.getPaddingTop(), view.getPaddingRight(), view.getPaddingBottom());
+        if(value != view.getPaddingLeft()){
+            view.setPadding(value, view.getPaddingTop(), view.getPaddingRight(), view.getPaddingBottom());
+        }
     }
 
     /**
@@ -510,7 +536,9 @@ public class QMUIViewHelper {
      * @param value 设置的值
      */
     public static void setPaddingTop(View view, int value) {
-        view.setPadding(view.getPaddingLeft(), value, view.getPaddingRight(), view.getPaddingBottom());
+        if(value != view.getPaddingTop()){
+            view.setPadding(view.getPaddingLeft(), value, view.getPaddingRight(), view.getPaddingBottom());
+        }
     }
 
     /**
@@ -520,7 +548,9 @@ public class QMUIViewHelper {
      * @param value 设置的值
      */
     public static void setPaddingRight(View view, int value) {
-        view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), value, view.getPaddingBottom());
+        if(value != view.getPaddingRight()){
+            view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), value, view.getPaddingBottom());
+        }
     }
 
     /**
@@ -530,7 +560,9 @@ public class QMUIViewHelper {
      * @param value 设置的值
      */
     public static void setPaddingBottom(View view, int value) {
-        view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), value);
+        if(value != view.getPaddingBottom()){
+            view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), value);
+        }
     }
 
     /**
@@ -573,11 +605,7 @@ public class QMUIViewHelper {
     }
 
     /**
-     * @param parentView
-     * @param viewStubId
-     * @param inflatedViewId
-     * @param inflateLayoutResId
-     * @return
+     * inflate ViewStub 并返回对应的 View。
      */
     public static View findViewFromViewStub(View parentView, int viewStubId, int inflatedViewId, int inflateLayoutResId) {
         if (null == parentView) {
@@ -600,6 +628,24 @@ public class QMUIViewHelper {
         return view;
     }
 
+    public static void safeSetImageViewSelected(ImageView imageView, boolean selected){
+        // imageView setSelected 实现有问题。
+        // resizeFromDrawable 中判断 drawable size 是否改变而调用 requestLayout，看似合理，但不会被调用
+        // 因为 super.setSelected(selected) 会调用 refreshDrawableState
+        // 而从 android 6 以后， ImageView 会重载refreshDrawableState，并在里面处理了 drawable size 改变的问题,
+        // 从而导致 resizeFromDrawable 的判断失效
+        Drawable drawable = imageView.getDrawable();
+        if(drawable == null){
+            return;
+        }
+        int drawableWidth = drawable.getIntrinsicWidth();
+        int drawableHeight = drawable.getIntrinsicHeight();
+        imageView.setSelected(selected);
+        if(drawable.getIntrinsicWidth() != drawableWidth || drawable.getIntrinsicHeight() != drawableHeight){
+            imageView.requestLayout();
+        }
+    }
+
 
     public static ColorFilter setImageViewTintColor(ImageView imageView, @ColorInt int tintColor) {
         LightingColorFilter colorFilter = new LightingColorFilter(Color.argb(255, 0, 0, 0), tintColor);
@@ -608,10 +654,10 @@ public class QMUIViewHelper {
     }
 
     /**
-     * 判断 ListView 是否已经滚动到底部
+     * 判断 ListView 是否已经滚动到底部。
      *
-     * @param listView 需要被判断的 ListView
-     * @return
+     * @param listView 需要被判断的 ListView。
+     * @return ListView 已经滚动到底部则返回 true，否则返回 false。
      */
     public static boolean isListViewAlreadyAtBottom(ListView listView) {
         if (listView.getAdapter() == null || listView.getHeight() == 0) {
@@ -627,4 +673,59 @@ public class QMUIViewHelper {
         return false;
     }
 
+
+    /**
+     * Retrieve the transformed bounding rect of an arbitrary descendant view.
+     * This does not need to be a direct child.
+     *
+     * @param descendant descendant view to reference
+     * @param out        rect to set to the bounds of the descendant view
+     */
+    public static void getDescendantRect(ViewGroup parent, View descendant, Rect out) {
+        out.set(0, 0, descendant.getWidth(), descendant.getHeight());
+        ViewGroupHelper.offsetDescendantRect(parent, descendant, out);
+    }
+
+
+    private static class ViewGroupHelper {
+        private static final ThreadLocal<Matrix> sMatrix = new ThreadLocal<>();
+        private static final ThreadLocal<RectF> sRectF = new ThreadLocal<>();
+
+        public static void offsetDescendantRect(ViewGroup group, View child, Rect rect) {
+            Matrix m = sMatrix.get();
+            if (m == null) {
+                m = new Matrix();
+                sMatrix.set(m);
+            } else {
+                m.reset();
+            }
+
+            offsetDescendantMatrix(group, child, m);
+
+            RectF rectF = sRectF.get();
+            if (rectF == null) {
+                rectF = new RectF();
+                sRectF.set(rectF);
+            }
+            rectF.set(rect);
+            m.mapRect(rectF);
+            rect.set((int) (rectF.left + 0.5f), (int) (rectF.top + 0.5f),
+                    (int) (rectF.right + 0.5f), (int) (rectF.bottom + 0.5f));
+        }
+
+        static void offsetDescendantMatrix(ViewParent target, View view, Matrix m) {
+            final ViewParent parent = view.getParent();
+            if (parent instanceof View && parent != target) {
+                final View vp = (View) parent;
+                offsetDescendantMatrix(target, vp, m);
+                m.preTranslate(-vp.getScrollX(), -vp.getScrollY());
+            }
+
+            m.preTranslate(view.getLeft(), view.getTop());
+
+            if (!view.getMatrix().isIdentity()) {
+                m.preConcat(view.getMatrix());
+            }
+        }
+    }
 }

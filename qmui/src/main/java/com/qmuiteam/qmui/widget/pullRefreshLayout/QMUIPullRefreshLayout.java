@@ -10,8 +10,11 @@ import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.NestedScrollingParent;
 import android.support.v4.view.NestedScrollingParentHelper;
 import android.support.v4.view.ViewCompat;
+import android.support.v4.widget.CircularProgressDrawable;
+import android.support.v7.widget.AppCompatImageView;
 import android.support.v7.widget.RecyclerView;
 import android.util.AttributeSet;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
@@ -19,13 +22,12 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.widget.AbsListView;
-import android.widget.ImageView;
 import android.widget.Scroller;
 
-import com.qmuiteam.qmui.drawable.QMUIMaterialProgressDrawable;
+import com.qmuiteam.qmui.BuildConfig;
+import com.qmuiteam.qmui.R;
 import com.qmuiteam.qmui.util.QMUIDisplayHelper;
 import com.qmuiteam.qmui.util.QMUIResHelper;
-import com.qmuiteam.qmui.R;
 
 /**
  * 下拉刷新控件, 作为容器，下拉时会将子 View 下移, 并拉出 RefreshView（表示正在刷新的 View）
@@ -41,18 +43,20 @@ import com.qmuiteam.qmui.R;
 public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingParent {
     private static final String TAG = "QMUIPullRefreshLayout";
     private static final int INVALID_POINTER = -1;
-
+    private static final int FLAG_NEED_SCROLL_TO_INIT_POSITION = 1;
+    private static final int FLAG_NEED_SCROLL_TO_REFRESH_POSITION = 1 << 1;
+    private static final int FLAG_NEED_DO_REFRESH = 1 << 2;
+    private static final int FLAG_NEED_DELIVER_VELOCITY = 1 << 3;
+    private final NestedScrollingParentHelper mNestedScrollingParentHelper;
+    boolean mIsRefreshing = false;
     private View mTargetView;
     private IRefreshView mIRefreshView;
     private View mRefreshView;
     private int mRefreshZIndex = -1;
     private int mSystemTouchSlop;
     private int mTouchSlop;
-    boolean mIsRefreshing = false;
     private OnPullListener mListener;
     private OnChildScrollUpCallback mChildScrollUpCallback;
-
-
     /**
      * RefreshView的初始offset
      */
@@ -73,49 +77,43 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
      * 是否自动根据TargetView在刷新时的位置计算RefreshView的结束位置
      */
     private boolean mAutoCalculateRefreshEndOffset = true;
-
     /**
      * 自动让TargetView的刷新位置与RefreshView高度相等
      */
     private boolean mEqualTargetRefreshOffsetToRefreshViewHeight = false;
-
     /**
      * 当拖拽超过超过mAutoScrollToRefreshMinOffset时，自动滚动到刷新位置并触发刷新
      * mAutoScrollToRefreshMinOffset == - 1表示要mAutoScrollToRefreshMinOffset>=mTargetRefreshOffset
      */
     private int mAutoScrollToRefreshMinOffset = -1;
-
     /**
      * TargetView(ListView或者ScrollView等)的初始位置
      */
     private int mTargetInitOffset;
+    /**
+     * 下拉时 TargetView（ListView 或者 ScrollView 等）当前的位置。
+     */
     private int mTargetCurrentOffset;
     /**
      * 刷新时TargetView(ListView或者ScrollView等)的位置
      */
     private int mTargetRefreshOffset;
     private boolean mEnableOverPull = true;
-
-    private final NestedScrollingParentHelper mNestedScrollingParentHelper;
     private boolean mNestedScrollInProgress;
     private int mActivePointerId = INVALID_POINTER;
     private boolean mIsDragging;
     private float mInitialDownY;
-    private float mInitialMotionY;
+    private float mInitialDownX;
+    @SuppressWarnings("FieldCanBeLocal") private float mInitialMotionY;
     private float mLastMotionY;
-    private float mDragRate = 0.65f;
+    @SuppressWarnings("FieldCanBeLocal") private float mDragRate = 0.65f;
     private RefreshOffsetCalculator mRefreshOffsetCalculator;
     private VelocityTracker mVelocityTracker;
     private float mMaxVelocity;
     private float mMiniVelocity;
-
-    private static final int FLAG_NEED_SCROLL_TO_INIT_POSITION = 1;
-    private static final int FLAG_NEED_SCROLL_TO_REFRESH_POSITION = 1 << 1;
-    private static final int FLAG_NEED_DO_REFRESH = 1 << 2;
-    private static final int FLAG_NEED_DELIVER_VELOCITY = 1 << 3;
-
     private Scroller mScroller;
     private int mScrollFlag = 0;
+    private boolean mNestScrollDurationRefreshing = false;
 
 
     public QMUIPullRefreshLayout(Context context) {
@@ -167,6 +165,24 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         }
         mRefreshCurrentOffset = mRefreshInitOffset;
         mTargetCurrentOffset = mTargetInitOffset;
+    }
+
+    public static boolean defaultCanScrollUp(View view) {
+        if (view == null) {
+            return false;
+        }
+        if (android.os.Build.VERSION.SDK_INT < 14) {
+            if (view instanceof AbsListView) {
+                final AbsListView absListView = (AbsListView) view;
+                return absListView.getChildCount() > 0
+                        && (absListView.getFirstVisiblePosition() > 0 || absListView.getChildAt(0)
+                        .getTop() < absListView.getPaddingTop());
+            } else {
+                return ViewCompat.canScrollVertically(view, -1) || view.getScrollY() > 0;
+            }
+        } else {
+            return ViewCompat.canScrollVertically(view, -1);
+        }
     }
 
     public void setOnPullListener(OnPullListener listener) {
@@ -236,6 +252,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         // if this is a List < L or another view that doesn't support nested
         // scrolling, ignore this request so that the vertical scroll event
         // isn't stolen
+        //noinspection StatementWithEmptyBody
         if ((android.os.Build.VERSION.SDK_INT < 21 && mTargetView instanceof AbsListView)
                 || (mTargetView != null && !ViewCompat.isNestedScrollingEnabled(mTargetView))) {
             // Nope.
@@ -282,11 +299,6 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         }
     }
 
-    public void setTargetRefreshOffset(int targetRefreshOffset) {
-        mEqualTargetRefreshOffsetToRefreshViewHeight = false;
-        mTargetRefreshOffset = targetRefreshOffset;
-    }
-
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
         final int width = getMeasuredWidth();
@@ -316,12 +328,14 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         ensureTargetView();
 
-        final int action = MotionEventCompat.getActionMasked(ev);
+        final int action = ev.getAction();
         int pointerIndex;
 
         if (!isEnabled() || canChildScrollUp() || mNestedScrollInProgress) {
-            Log.d(TAG, "fast end onIntercept: isEnabled = " + isEnabled() + "; canChildScrollUp = "
-                    + canChildScrollUp() + " ; mNestedScrollInProgress = " + mNestedScrollInProgress);
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "fast end onIntercept: isEnabled = " + isEnabled() + "; canChildScrollUp = "
+                        + canChildScrollUp() + " ; mNestedScrollInProgress = " + mNestedScrollInProgress);
+            }
             return false;
         }
         switch (action) {
@@ -332,6 +346,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                 if (pointerIndex < 0) {
                     return false;
                 }
+                mInitialDownX = ev.getX(pointerIndex);
                 mInitialDownY = ev.getY(pointerIndex);
                 break;
 
@@ -342,8 +357,9 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                     return false;
                 }
 
+                final float x = ev.getX(pointerIndex);
                 final float y = ev.getY(pointerIndex);
-                startDragging(y);
+                startDragging(x, y);
                 break;
 
             case MotionEventCompat.ACTION_POINTER_UP:
@@ -362,7 +378,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
-        final int action = MotionEventCompat.getActionMasked(ev);
+        final int action = ev.getAction();
         int pointerIndex;
 
         if (!isEnabled() || canChildScrollUp() || mNestedScrollInProgress) {
@@ -389,22 +405,23 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                     Log.e(TAG, "onTouchEvent Got ACTION_MOVE event but have an invalid active pointer id.");
                     return false;
                 }
+                final float x = ev.getX(pointerIndex);
                 final float y = ev.getY(pointerIndex);
-                startDragging(y);
+                startDragging(x, y);
 
                 if (mIsDragging) {
-                    float dy = y - mLastMotionY;
+                    float dy = (y - mLastMotionY) * mDragRate;
                     if (dy >= 0) {
                         moveTargetView(dy, true);
                     } else {
                         int move = moveTargetView(dy, true);
-                        float delta = Math.abs(dy * mDragRate) - Math.abs(move);
+                        float delta = Math.abs(dy) - Math.abs(move);
                         if (delta > 0) {
                             // 重新dispatch一次down事件，使得列表可以继续滚动
                             ev.setAction(MotionEvent.ACTION_DOWN);
                             // 立刻dispatch一个大于mSystemTouchSlop的move事件，防止触发TargetView
                             float offsetLoc = mSystemTouchSlop + 1;
-                            if(delta > offsetLoc){
+                            if (delta > offsetLoc) {
                                 offsetLoc = delta;
                             }
                             ev.offsetLocation(0, offsetLoc);
@@ -419,7 +436,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                 }
                 break;
             }
-            case MotionEventCompat.ACTION_POINTER_DOWN: {
+            case MotionEvent.ACTION_POINTER_DOWN: {
                 pointerIndex = MotionEventCompat.getActionIndex(ev);
                 if (pointerIndex < 0) {
                     Log.e(TAG, "Got ACTION_POINTER_DOWN event but have an invalid action index.");
@@ -429,7 +446,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                 break;
             }
 
-            case MotionEventCompat.ACTION_POINTER_UP:
+            case MotionEvent.ACTION_POINTER_UP:
                 onSecondaryPointerUp(ev);
                 break;
 
@@ -444,7 +461,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                     mIsDragging = false;
                     mVelocityTracker.computeCurrentVelocity(1000, mMaxVelocity);
                     float vy = mVelocityTracker.getYVelocity(mActivePointerId);
-                    if(Math.abs(vy) < mMiniVelocity){
+                    if (Math.abs(vy) < mMiniVelocity) {
                         vy = 0;
                     }
                     finishPull((int) vy);
@@ -468,6 +485,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                 if (!view.equals(mRefreshView)) {
                     onSureTargetView(view);
                     mTargetView = view;
+                    break;
                 }
             }
         }
@@ -475,17 +493,23 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
 
     /**
      * 确定TargetView, 提供机会给子类来做一些初始化的操作
-     * @param targetView
      */
-    protected void onSureTargetView(View targetView){
+    protected void onSureTargetView(View targetView) {
 
     }
 
-    protected void finishPull(int vy) {
-        Log.i(TAG, "finishPull: vy = " + vy + " ; mTargetCurrentOffset = " + mTargetCurrentOffset +
+    protected void onFinishPull(int vy, int refreshInitOffset, int refreshEndOffset, int refreshViewHeight,
+                                int targetCurrentOffset, int targetInitOffset, int targetRefreshOffset) {
+
+    }
+
+    private void finishPull(int vy) {
+        info("finishPull: vy = " + vy + " ; mTargetCurrentOffset = " + mTargetCurrentOffset +
                 " ; mTargetRefreshOffset = " + mTargetRefreshOffset + " ; mTargetInitOffset = " + mTargetInitOffset +
                 " ; mScroller.isFinished() = " + mScroller.isFinished());
         int miniVy = vy / 1000; // 向下拖拽时， 速度不能太大
+        onFinishPull(miniVy, mRefreshInitOffset, mRefreshEndOffset, mRefreshView.getHeight(),
+                mTargetCurrentOffset, mTargetInitOffset, mTargetRefreshOffset);
         if (mTargetCurrentOffset >= mTargetRefreshOffset) {
             if (miniVy > 0) {
                 mScrollFlag = FLAG_NEED_SCROLL_TO_REFRESH_POSITION | FLAG_NEED_DO_REFRESH;
@@ -500,7 +524,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                 } else if (mScroller.getFinalY() < mTargetRefreshOffset) {
                     int dy = mTargetInitOffset - mTargetCurrentOffset;
                     mScroller.startScroll(0, mTargetCurrentOffset, 0, dy);
-                } else if(mScroller.getFinalY() == mTargetRefreshOffset){
+                } else if (mScroller.getFinalY() == mTargetRefreshOffset) {
                     mScrollFlag = FLAG_NEED_DO_REFRESH;
                 } else {
                     mScroller.startScroll(0, mTargetCurrentOffset, 0, mTargetRefreshOffset - mTargetCurrentOffset);
@@ -537,6 +561,9 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
                 }
                 invalidate();
             } else {
+                if (mTargetCurrentOffset == mTargetInitOffset) {
+                    return;
+                }
                 if (mAutoScrollToRefreshMinOffset >= 0 && mTargetCurrentOffset >= mAutoScrollToRefreshMinOffset) {
                     mScroller.startScroll(0, mTargetCurrentOffset, 0, mTargetRefreshOffset - mTargetCurrentOffset);
                     mScrollFlag = FLAG_NEED_DO_REFRESH;
@@ -585,19 +612,27 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         }
     }
 
-    private void reset() {
+    public void reset() {
         moveTargetViewTo(mTargetInitOffset, false);
         mIRefreshView.stop();
+        mIsRefreshing = false;
+        mScroller.forceFinished(true);
         mScrollFlag = 0;
     }
 
-    protected void startDragging(float y) {
-        final float yDiff = y - mInitialDownY;
-        if ((yDiff > mTouchSlop || (yDiff < -mTouchSlop && mTargetCurrentOffset > mTargetInitOffset)) && !mIsDragging) {
+    protected void startDragging(float x, float y) {
+        final float dx = x - mInitialDownX;
+        final float dy = y - mInitialDownY;
+        boolean isYDrag = isYDrag(dx, dy);
+        if (isYDrag && (dy > mTouchSlop || (dy < -mTouchSlop && mTargetCurrentOffset > mTargetInitOffset)) && !mIsDragging) {
             mInitialMotionY = mInitialDownY + mTouchSlop;
             mLastMotionY = mInitialMotionY;
             mIsDragging = true;
         }
+    }
+
+    protected boolean isYDrag(float dx, float dy) {
+        return Math.abs(dy) > Math.abs(dx);
     }
 
     @Override
@@ -622,41 +657,22 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         return defaultCanScrollUp(mTargetView);
     }
 
-    protected boolean defaultCanScrollUp(View view) {
-        if (view == null) {
-            return false;
-        }
-        if (android.os.Build.VERSION.SDK_INT < 14) {
-            if (view instanceof AbsListView) {
-                final AbsListView absListView = (AbsListView) view;
-                return absListView.getChildCount() > 0
-                        && (absListView.getFirstVisiblePosition() > 0 || absListView.getChildAt(0)
-                        .getTop() < absListView.getPaddingTop());
-            } else {
-                return ViewCompat.canScrollVertically(view, -1) || view.getScrollY() > 0;
-            }
-        } else {
-            return ViewCompat.canScrollVertically(view, -1);
-        }
-    }
-
-
     @Override
     public boolean onStartNestedScroll(View child, View target, int nestedScrollAxes) {
-        Log.i(TAG, "onStartNestedScroll: nestedScrollAxes = " + nestedScrollAxes);
+        info("onStartNestedScroll: nestedScrollAxes = " + nestedScrollAxes);
         return isEnabled() && (nestedScrollAxes & ViewCompat.SCROLL_AXIS_VERTICAL) != 0;
     }
 
     @Override
     public void onNestedScrollAccepted(View child, View target, int axes) {
-        Log.i(TAG, "onNestedScrollAccepted: axes = " + axes);
+        info("onNestedScrollAccepted: axes = " + axes);
         mNestedScrollingParentHelper.onNestedScrollAccepted(child, target, axes);
         mNestedScrollInProgress = true;
     }
 
     @Override
     public void onNestedPreScroll(View target, int dx, int dy, int[] consumed) {
-        Log.i(TAG, "onNestedPreScroll: dx = " + dx + " ; dy = " + dy);
+        info("onNestedPreScroll: dx = " + dx + " ; dy = " + dy);
         int parentCanConsume = mTargetCurrentOffset - mTargetInitOffset;
         if (dy > 0 && parentCanConsume > 0) {
             if (dy >= parentCanConsume) {
@@ -671,7 +687,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
 
     @Override
     public void onNestedScroll(View target, int dxConsumed, int dyConsumed, int dxUnconsumed, int dyUnconsumed) {
-        Log.i(TAG, "onNestedScroll: dxConsumed = " + dxConsumed + " ; dyConsumed = " + dyConsumed +
+        info("onNestedScroll: dxConsumed = " + dxConsumed + " ; dyConsumed = " + dyConsumed +
                 " ; dxUnconsumed = " + dxUnconsumed + " ; dyUnconsumed = " + dyUnconsumed);
         if (dyUnconsumed < 0 && !canChildScrollUp()) {
             moveTargetView(-dyUnconsumed, true);
@@ -685,7 +701,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
 
     @Override
     public void onStopNestedScroll(View child) {
-        Log.i(TAG, "onStopNestedScroll");
+        info("onStopNestedScroll: mNestedScrollInProgress = " + mNestedScrollInProgress);
         mNestedScrollingParentHelper.onStopNestedScroll(child);
         if (mNestedScrollInProgress) {
             mNestedScrollInProgress = false;
@@ -695,7 +711,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
 
     @Override
     public boolean onNestedPreFling(View target, float velocityX, float velocityY) {
-        Log.i(TAG, "onNestedPreFling: mTargetCurrentOffset = " + mTargetCurrentOffset +
+        info("onNestedPreFling: mTargetCurrentOffset = " + mTargetCurrentOffset +
                 " ; velocityX = " + velocityX + " ; velocityY = " + velocityY);
         if (mTargetCurrentOffset > mTargetInitOffset) {
             mNestedScrollInProgress = false;
@@ -717,11 +733,11 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
     }
 
     private int moveTargetView(float dy, boolean isDragging) {
-        int target = (int) (mTargetCurrentOffset + dy * mDragRate);
+        int target = (int) (mTargetCurrentOffset + dy);
         return moveTargetViewTo(target, isDragging);
     }
 
-    private int moveTargetViewTo(int target, boolean isDragging){
+    private int moveTargetViewTo(int target, boolean isDragging) {
         return moveTargetViewTo(target, isDragging, false);
     }
 
@@ -793,15 +809,20 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         return mTargetRefreshOffset;
     }
 
+    public void setTargetRefreshOffset(int targetRefreshOffset) {
+        mEqualTargetRefreshOffsetToRefreshViewHeight = false;
+        mTargetRefreshOffset = targetRefreshOffset;
+    }
+
     public View getTargetView() {
         return mTargetView;
     }
 
-    protected void onMoveTargetView(int offset){
+    protected void onMoveTargetView(int offset) {
 
     }
 
-    protected void onMoveRefreshView(int offset){
+    protected void onMoveRefreshView(int offset) {
 
     }
 
@@ -819,7 +840,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         if (mScroller.computeScrollOffset()) {
             int offsetY = mScroller.getCurrY();
             moveTargetViewTo(offsetY, false);
-            if(offsetY <= 0 && hasFlag(FLAG_NEED_DELIVER_VELOCITY)){
+            if (offsetY <= 0 && hasFlag(FLAG_NEED_DELIVER_VELOCITY)) {
                 deliverVelocity();
                 mScroller.forceFinished(true);
             }
@@ -834,24 +855,25 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
             removeFlag(FLAG_NEED_SCROLL_TO_REFRESH_POSITION);
             if (mTargetCurrentOffset != mTargetRefreshOffset) {
                 mScroller.startScroll(0, mTargetCurrentOffset, 0, mTargetRefreshOffset - mTargetCurrentOffset);
-            }else{
+            } else {
                 moveTargetViewTo(mTargetRefreshOffset, false, true);
             }
             invalidate();
         } else if (hasFlag(FLAG_NEED_DO_REFRESH)) {
             removeFlag(FLAG_NEED_DO_REFRESH);
             onRefresh();
+            moveTargetViewTo(mTargetRefreshOffset, false, true);
         } else {
             deliverVelocity();
         }
     }
 
-    private void deliverVelocity(){
-        if(hasFlag(FLAG_NEED_DELIVER_VELOCITY)){
+    private void deliverVelocity() {
+        if (hasFlag(FLAG_NEED_DELIVER_VELOCITY)) {
             removeFlag(FLAG_NEED_DELIVER_VELOCITY);
             if (mScroller.getCurrVelocity() > mMiniVelocity) {
-                Log.i(TAG, "deliver velocity: " + mScroller.getCurrVelocity());
-                // 如果还有速度，则传递给子view
+                info("deliver velocity: " + mScroller.getCurrVelocity());
+                // if there is a velocity, pass it on
                 if (mTargetView instanceof RecyclerView) {
                     ((RecyclerView) mTargetView).fling(0, (int) mScroller.getCurrVelocity());
                 } else if (mTargetView instanceof AbsListView && android.os.Build.VERSION.SDK_INT >= 21) {
@@ -861,6 +883,30 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         }
     }
 
+    private void info(String msg) {
+        if (BuildConfig.DEBUG) {
+            Log.i(TAG, msg);
+        }
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        final int action = ev.getAction();
+        if (action == MotionEvent.ACTION_DOWN) {
+            mNestScrollDurationRefreshing = mIsRefreshing;
+        } else if (mNestScrollDurationRefreshing) {
+            if (action == MotionEvent.ACTION_MOVE) {
+                if (!mIsRefreshing) {
+                    mNestScrollDurationRefreshing = false;
+                    ev.setAction(MotionEvent.ACTION_DOWN);
+                }
+            } else {
+                mNestScrollDurationRefreshing = false;
+            }
+        }
+
+        return super.dispatchTouchEvent(ev);
+    }
 
     public interface OnPullListener {
 
@@ -879,55 +925,87 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
     public interface RefreshOffsetCalculator {
 
         /**
-         * 通过targetView的当前位置、targetView的初始和刷新位置以及refreshView的初始与结束位置计算RefreshView的位置
+         * 通过 targetView 的当前位置、targetView 的初始和刷新位置以及 refreshView 的初始与结束位置计算 RefreshView 的位置。
          *
-         * @param refreshInitOffset
-         * @param refreshEndOffset
-         * @param refreshViewHeight
-         * @param targetCurrentOffset
-         * @param targetInitOffset
-         * @param targetRefreshOffset
-         * @return
+         * @param refreshInitOffset   RefreshView 的初始 offset。
+         * @param refreshEndOffset    刷新时 RefreshView 的 offset。
+         * @param refreshViewHeight   RerfreshView 的高度
+         * @param targetCurrentOffset 下拉时 TargetView（ListView 或者 ScrollView 等）当前的位置。
+         * @param targetInitOffset    TargetView（ListView 或者 ScrollView 等）的初始位置。
+         * @param targetRefreshOffset 刷新时 TargetView（ListView 或者 ScrollView等）的位置。
+         * @return RefreshView 当前的位置。
          */
         int calculateRefreshOffset(int refreshInitOffset, int refreshEndOffset, int refreshViewHeight,
                                    int targetCurrentOffset, int targetInitOffset, int targetRefreshOffset);
     }
 
-    public static class RefreshView extends ImageView implements IRefreshView {
+    public interface IRefreshView {
+        void stop();
+
+        void doRefresh();
+
+        void onPull(int offset, int total, int overPull);
+    }
+
+    public static class RefreshView extends AppCompatImageView implements IRefreshView {
         private static final int MAX_ALPHA = 255;
         private static final float TRIM_RATE = 0.85f;
         private static final float TRIM_OFFSET = 0.4f;
 
-        private QMUIMaterialProgressDrawable mProgress;
+        static final int CIRCLE_DIAMETER = 40;
+        static final int CIRCLE_DIAMETER_LARGE = 56;
+
+        private CircularProgressDrawable mProgress;
+        private int mCircleDiameter;
 
         public RefreshView(Context context) {
             super(context);
-            mProgress = new QMUIMaterialProgressDrawable(getContext(), this);
-            mProgress.setColorSchemeColors(QMUIResHelper.getAttrColor(context, R.attr.qmui_config_color_blue));
-            mProgress.updateSizes(QMUIMaterialProgressDrawable.LARGE);
+            mProgress = new CircularProgressDrawable(context);
+            setColorSchemeColors(QMUIResHelper.getAttrColor(context, R.attr.qmui_config_color_blue));
+            mProgress.setStyle(CircularProgressDrawable.LARGE);
             mProgress.setAlpha(MAX_ALPHA);
-            mProgress.setArrowScale(1.1f);
+            mProgress.setArrowScale(0.8f);
             setImageDrawable(mProgress);
+            final DisplayMetrics metrics = getResources().getDisplayMetrics();
+            mCircleDiameter = (int) (CIRCLE_DIAMETER * metrics.density);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            setMeasuredDimension(mCircleDiameter, mCircleDiameter);
         }
 
         @Override
         public void onPull(int offset, int total, int overPull) {
+            if (mProgress.isRunning()) {
+                return;
+            }
+            Log.i("cgine", "=========");
             float end = TRIM_RATE * offset / total;
             float rotate = TRIM_OFFSET * offset / total;
             if (overPull > 0) {
                 rotate += TRIM_OFFSET * overPull / total;
             }
-            mProgress.showArrow(true);
+            mProgress.setArrowEnabled(true);
             mProgress.setStartEndTrim(0, end);
             mProgress.setProgressRotation(rotate);
         }
 
-        public void setSize(int size) {
-            if (size != QMUIMaterialProgressDrawable.LARGE && size != QMUIMaterialProgressDrawable.DEFAULT) {
+        public void setSize(@CircularProgressDrawable.ProgressDrawableSize int size) {
+            if (size != CircularProgressDrawable.LARGE && size != CircularProgressDrawable.DEFAULT) {
                 return;
             }
+            final DisplayMetrics metrics = getResources().getDisplayMetrics();
+            if (size == CircularProgressDrawable.LARGE) {
+                mCircleDiameter = (int) (CIRCLE_DIAMETER_LARGE * metrics.density);
+            } else {
+                mCircleDiameter = (int) (CIRCLE_DIAMETER * metrics.density);
+            }
+            // force the bounds of the progress circle inside the circle view to
+            // update by setting it to null before updating its size and then
+            // re-setting it
             setImageDrawable(null);
-            mProgress.updateSizes(size);
+            mProgress.setStyle(size);
             setImageDrawable(mProgress);
         }
 
@@ -936,9 +1014,7 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         }
 
         public void doRefresh() {
-            if (!mProgress.isRunning()) {
-                mProgress.start();
-            }
+            mProgress.start();
         }
 
         public void setColorSchemeResources(@ColorRes int... colorResIds) {
@@ -953,13 +1029,5 @@ public class QMUIPullRefreshLayout extends ViewGroup implements NestedScrollingP
         public void setColorSchemeColors(@ColorInt int... colors) {
             mProgress.setColorSchemeColors(colors);
         }
-    }
-
-    public interface IRefreshView {
-        void stop();
-
-        void doRefresh();
-
-        void onPull(int offset, int total, int overPull);
     }
 }

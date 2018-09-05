@@ -4,6 +4,7 @@ import android.support.annotation.Nullable;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Locale;
 
 /**
  * @author cginechen
@@ -35,7 +36,7 @@ public class QMUILangHelper {
      * @return 保留两位小数的价格字符串
      */
     public static String regularizePrice(float price) {
-        return String.format("%.2f", price);
+        return String.format(Locale.CHINESE, "%.2f", price);
     }
 
     /**
@@ -45,7 +46,7 @@ public class QMUILangHelper {
      * @return 保留两位小数的价格字符串
      */
     public static String regularizePrice(double price) {
-        return String.format("%.2f", price);
+        return String.format(Locale.CHINESE, "%.2f", price);
     }
 
 
@@ -63,5 +64,15 @@ public class QMUILangHelper {
         }
     }
 
+    public static boolean objectEquals(Object a, Object b) {
+        return (a == b) || (a != null && a.equals(b));
+    }
 
+    public static int constrain(int amount, int low, int high) {
+        return amount < low ? low : (amount > high ? high : amount);
+    }
+
+    public static float constrain(float amount, float low, float high) {
+        return amount < low ? low : (amount > high ? high : amount);
+    }
 }
